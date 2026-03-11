@@ -919,7 +919,43 @@ if st.button(
 ):
     st.session_state.show_email_form = not st.session_state.show_email_form
 
-# Reveal the form when toggled on
+def _save_lead_csv(data: dict, path: str = "leads.csv"):
+    """Append a lead row to leads.csv (persists locally; ephemeral on Streamlit Cloud)."""
+    file_exists = os.path.isfile(path)
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=data.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(data)
+
+def _send_lead_email(data: dict) -> bool:
+    """Send notification email via SMTP using credentials in st.secrets."""
+    try:
+        cfg = st.secrets["email"]
+        sender   = cfg["sender"]
+        password = cfg["password"]
+        recipient = cfg.get("recipient", "anna@trachet.co")
+
+        msg = MIMEMultipart("alternative")
+        msg["From"]    = sender
+        msg["To"]      = recipient
+        msg["Subject"] = f"New lead — {data.get('Name', 'Unknown')} ({data.get('Company', '')})"
+
+        body_lines = ["New lead from the Founder Proceeds Calculator:\n"]
+        for k, v in data.items():
+            if v:
+                body_lines.append(f"  {k}: {v}")
+        body_lines.append(f"\n  Submitted: {data.get('Timestamp', '')}")
+        msg.attach(MIMEText("\n".join(body_lines), "plain"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender, password)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        return False
+
+# --- Reveal the form when toggled on ----------------------------------------
 if st.session_state.show_email_form:
     st.caption("Let's have a call and discuss your results.")
 
@@ -947,8 +983,57 @@ if st.session_state.show_email_form:
         elif not is_valid_email(email):
             st.error("Please enter a valid email address.")
         else:
-            # TODO: replace this with your real capture/send logic (CRM, email provider, db, etc.)
-            st.success("Thanks — we’ll email you shortly.")
+            lead = {
+                "Timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "Name": name.strip(),
+                "Email": email.strip(),
+                "Company": company.strip(),
+                "Role": role.strip(),
+                "Country": country.strip(),
+                "Phone": phone.strip(),
+            }
+            _save_lead_csv(lead)
+            email_ok = _send_lead_email(lead)
+            if email_ok:
+                st.success("Thanks — we’ll be in touch shortly.")
+            else:
+                st.success("Thanks — your details have been saved.")
+                st.info("(Email notification could not be sent — check SMTP secrets configuration.)")
+                
+# Reveal the form when toggled on
+# if st.session_state.show_email_form:
+#     st.caption("Let's have a call and discuss your results.")
+
+#     def is_valid_email(email: str) -> bool:
+#         return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", (email or "").strip()))
+
+#     with st.form("email_details_form", clear_on_submit=True):
+#         name = st.text_input("Name *")
+#         email = st.text_input("Email *")
+#         col_a, col_b = st.columns(2)
+#         with col_a:
+#             company = st.text_input("Company")
+#             country = st.text_input("Country")
+#         with col_b:
+#             role = st.text_input("Role")
+#             phone = st.text_input("Phone number")
+#         consent = st.checkbox("I agree to be contacted by email.")
+#         submitted = st.form_submit_button("Send me the details", type="primary")
+
+#     if submitted:
+#         if not consent:
+#             st.error("Please confirm consent to be contacted.")
+#         elif not name.strip():
+#             st.error("Please enter your name.")
+#         elif not is_valid_email(email):
+#             st.error("Please enter a valid email address.")
+#         else:
+#             # TODO: replace this with your real capture/send logic (CRM, email provider, db, etc.)
+#             st.success("Thanks — we’ll email you shortly.")
+
+# --- above original 
+
+
 
 # display raw data table for debugging
 # with st.expander("Show detailed data"):
@@ -978,4 +1063,5 @@ if st.session_state.show_email_form:
 #             "Difference (M)": difference_vals / 1e6,
 #         })
 #         st.dataframe(chart3_df, use_container_width=True)
+
   
